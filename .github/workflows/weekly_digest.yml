@@ -1,12 +1,9 @@
 name: Weekly RSS Digest
 
 on:
-  # Run every Monday at 7:00 AM CET (5:00 AM UTC in winter, 6:00 AM UTC in summer)
-  # Using 5:00 AM UTC to be safe
   schedule:
     - cron: '0 5 * * 1'
 
-  # Allow manual trigger
   workflow_dispatch:
     inputs:
       test_mode:
@@ -38,17 +35,22 @@ jobs:
 
       - name: Install dependencies
         run: uv sync
-- name: Debug env presence
-  run: |
-    echo "OPENAI_API_KEY present: ${OPENAI_API_KEY:+yes}"
-    echo "SMTP_PASSWORD present: ${SMTP_PASSWORD:+yes}"
-    echo "FROM_EMAIL present: ${FROM_EMAIL:+yes}"
-    echo "RECIPIENT_EMAIL present: ${RECIPIENT_EMAIL:+yes}"
-  env:
-    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-    SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-    FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
-    RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+
+      - name: Debug env presence
+        run: |
+          echo "OPENAI_API_KEY present: ${OPENAI_API_KEY:+yes}"
+          echo "OPENAI_BASE_URL present: ${OPENAI_BASE_URL:+yes}"
+          echo "LLM_MODEL present: ${LLM_MODEL:+yes}"
+          echo "SMTP_PASSWORD present: ${SMTP_PASSWORD:+yes}"
+          echo "FROM_EMAIL present: ${FROM_EMAIL:+yes}"
+          echo "RECIPIENT_EMAIL present: ${RECIPIENT_EMAIL:+yes}"
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
 
       - name: Run digest workflow
         env:
