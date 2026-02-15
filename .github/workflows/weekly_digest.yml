@@ -38,6 +38,17 @@ jobs:
 
       - name: Install dependencies
         run: uv sync
+- name: Debug env presence
+  run: |
+    echo "OPENAI_API_KEY present: ${OPENAI_API_KEY:+yes}"
+    echo "SMTP_PASSWORD present: ${SMTP_PASSWORD:+yes}"
+    echo "FROM_EMAIL present: ${FROM_EMAIL:+yes}"
+    echo "RECIPIENT_EMAIL present: ${RECIPIENT_EMAIL:+yes}"
+  env:
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+    FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
+    RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
 
       - name: Run digest workflow
         env:
