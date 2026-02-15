@@ -227,7 +227,8 @@ if __name__ == "__main__":
 
     load_dotenv()
 
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    assert api_key is not None, "OPENROUTER_API_KEY not set"
     base_url = os.getenv("OPENAI_BASE_URL")
 
     if api_key:
