@@ -31,9 +31,13 @@ class LLMProcessor:
         # Only pass base_url if it's provided and not empty
         if base_url:
             self.client = OpenAI(
-                base_url=base_url,
-                api_key=api_key
-            )
+                 base_url=base_url,
+    api_key=api_key,
+    default_headers={
+        "HTTP-Referer": "https://github.com/your-username/rss-digest",
+        "X-Title": "BD700 Actionability Filter"
+    }
+)
             logger.info(f"LLM Processor initialized with model: {model}, base_url: {base_url}")
         else:
             self.client = OpenAI(
