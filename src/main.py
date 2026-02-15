@@ -243,7 +243,7 @@ def main():
         smtp_password=os.getenv('SMTP_PASSWORD'),
         from_email=os.getenv('FROM_EMAIL'),
         recipient_email=os.getenv('RECIPIENT_EMAIL'),
-        openai_base_url=os.getenv('OPENAI_BASE_URL')
+        openai_base_url=os.getenv('OPENAI_BASE_URL', '').strip()
     )
 
     # Run workflow
