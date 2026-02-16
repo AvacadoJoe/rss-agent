@@ -1,6 +1,6 @@
 """
 RSS Feed Fetcher
-Retrieves technical aviation articles, filters for BD-700 relevance,
+Retrieves technical aviation articles, filters for BD-700/E-11A relevance,
 and handles deduplication using a local history file.
 """
 
@@ -19,28 +19,94 @@ HISTORY_FILE = "sent_history.json"
 # Strict cutoff: Only articles published on or after Feb 15, 2026
 CUTOFF_DATE = datetime(2026, 2, 15)
 
-# STRICT Technical Keywords (Legacy BD-700 only)
+# STRICT Technical Keywords for E-11A BACN and related entities
 BD700_KEYWORDS = [
+    # Platform & Payload
+    "e-11", "e-11a", "e11a",
+    "bacn", "battlefield airborne communications node",
+    
+    # Units & Bases
+    "430th expeditionary", "430 eecs",
+    "472 ecs", "472nd ecs",
+    "319th reconnaissance", "319 rw", # Wing at Grand Forks
+    "grand forks afb", "grand forks",
+    "hanscom afb", # Program Office
+    
+    # Base Airframe & Technical
     "bd-700", "bd700",
-    "global express", 
-    "global 5000", 
-    "global 6000",
-    "xrs", "E-11", "E-11A", "Battlefield Airborne Communications Node".
+    "global express", "global 6000",
     "airworthiness", "directive", "ad",
-    "service bulletin", "sb", "BACN",
-    "maintenance", "safety", "incident", "faa", "easa", "transport canada"
+    "service bulletin", "sb",
+    "maintenance", "safety", "incident", "faa", "easa", "transport canada",
+
+    # Key Companies & Topics
+    "northrop grumman",
+    "cae inc",
+    "flight training", "simulator"
 ]
 
 # Technical & Regulatory Feeds
 RSS_FEEDS = [
-    # Transport Canada - Civil Aviation Recent ADs (Primary Source)
+    # --- 1. OFFICIAL USAF & DOD FEEDS (NEW) ---
+    
+    # U.S. Department of Defense (Official News)
+    "https://www.defense.gov/DesktopModules/ArticleCS/RSS.aspx?ContentType=1&Site=145",
+
+    # U.S. Air Force (Official Top News)
+    "https://www.af.mil/DesktopModules/ArticleCS/RSS.aspx?ContentType=1&Site=1",
+
+    # Air Combat Command (ACC) - The MAJCOM for E-11A
+    "https://www.acc.af.mil/DesktopModules/ArticleCS/RSS.aspx?ContentType=1&Site=2",
+
+    # Grand Forks AFB - Home of the E-11A Mission
+    "https://www.grandforks.af.mil/DesktopModules/ArticleCS/RSS.aspx?ContentType=1&Site=264",
+
+    # Hanscom AFB - Home of the BACN Program Office (Contracts/Acquisition)
+    "https://www.hanscom.af.mil/DesktopModules/ArticleCS/RSS.aspx?ContentType=1&Site=286",
+
+    # --- 2. E-11A / BACN SPECIFIC FEEDS ---
+    
+    # Google News Custom Search: E-11A OR BACN
+    "https://news.google.com/rss/search?q=E-11A+OR+%22Battlefield+Airborne+Communications+Node%22+OR+BACN&hl=en-US&gl=US&ceid=US:en",
+    
+    # DVIDS (Defense Visual Information Distribution Service) - Tag: E-11A
+    "https://www.dvidshub.net/rss/news/tags/e-11a",
+
+    # --- 3. DEFENSE & AVIATION NEWS ---
+
+    # Air & Space Forces Magazine
+    "https://www.airandspaceforces.com/feed/",
+    
+    # The Aviationist
+    "https://theaviationist.com/feed/",
+    
+    # Defense News - Air Warfare
+    "https://www.defensenews.com/arc/outboundfeeds/rss/category/air/",
+
+    # Breaking Defense - Air Domain
+    "https://breakingdefense.com/category/domain/air/feed/",
+
+    # --- 4. INDUSTRY & TRAINING FEEDS ---
+
+    # Northrop Grumman
+    "https://news.northropgrumman.com/rss.xml",
+
+    # CAE Inc.
+    "https://www.cae.com/rss/press-releases/",
+
+    # Defense News - Training & Simulation
+    "https://www.defensenews.com/arc/outboundfeeds/rss/category/training-simulation/",
+
+    # Halldale Group (Military Simulation & Training)
+    "https://www.halldale.com/feed",
+
+    # --- 5. REGULATORY & SAFETY FEEDS ---
+
+    # Transport Canada - Civil Aviation Recent ADs
     "https://wwwapps.tc.gc.ca/Saf-Sec-Sur/2/awd-cn/rss-feed-ech.aspx?lang=eng",
-    # FAA Airworthiness Directives (filtered via Federal Register)
+    
+    # FAA Airworthiness Directives
     "https://www.federalregister.gov/api/v1/documents.rss?conditions%5Bterm%5D=Bombardier+BD-700+Airworthiness",
-    # EASA Airworthiness Directives
-    "https://www.easa.europa.eu/en/rss/ad",
-    # Aviation Herald (Incidents/Accidents)
-    "https://avherald.com/h?opt=0&f=0"
 ]
 
 def load_history() -> List[str]:
@@ -87,7 +153,6 @@ def fetch_and_filter_articles() -> Tuple[List[Dict[str, Any]], List[str], List[s
             
             for entry in feed.entries:
                 # 1. IDENTIFY UNIQUE ID
-                # Use GUID if available, otherwise Link, otherwise Title
                 unique_id = entry.get('id', entry.get('link', entry.get('title')))
                 
                 # 2. DUPLICATE CHECK
@@ -95,11 +160,10 @@ def fetch_and_filter_articles() -> Tuple[List[Dict[str, Any]], List[str], List[s
                     continue 
 
                 # 3. DATE CHECK
-                # feedparser returns time.struct_time, convert to datetime
                 if hasattr(entry, 'published_parsed') and entry.published_parsed:
                     published_dt = datetime.fromtimestamp(time.mktime(entry.published_parsed))
                     if published_dt < CUTOFF_DATE:
-                        continue # Skip old articles
+                        continue 
                 
                 # 4. KEYWORD & CONTENT FILTERING
                 title = entry.get('title', '')
@@ -111,11 +175,11 @@ def fetch_and_filter_articles() -> Tuple[List[Dict[str, Any]], List[str], List[s
                 if any(x in content_text for x in ["7500", "8000", "order", "delivery", "stock", "quarterly"]):
                     continue
 
-                # Inclusion (Must match BD-700 keywords)
+                # Inclusion (Must match target keywords)
                 if any(keyword in content_text for keyword in BD700_KEYWORDS):
                     
-                    # Flag if this is from the State of Design (Canada)
-                    is_primary = "tc.gc.ca" in feed_url or "CF-" in title
+                    # Flag if this is from a Primary Military/Regulatory Source
+                    is_primary = any(x in feed_url for x in ["tc.gc.ca", "dvidshub", "af.mil", "defense.gov"]) or "CF-" in title
                     
                     articles.append({
                         'title': title,
@@ -133,7 +197,6 @@ def fetch_and_filter_articles() -> Tuple[List[Dict[str, Any]], List[str], List[s
 
     logger.info(f"Found {len(articles)} new relevant articles.")
     
-    # Return the articles, the new IDs to save later, and the old history
     return articles, new_ids_found, sent_ids
 
 if __name__ == "__main__":
