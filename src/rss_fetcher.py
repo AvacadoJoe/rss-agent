@@ -25,7 +25,7 @@ BD700_KEYWORDS = [
     "global express", 
     "global 5000", 
     "global 6000",
-    "xrs",
+    "xrs", "E-11", "E-11A",
     "airworthiness", "directive", "ad",
     "service bulletin", "sb",
     "maintenance", "safety", "incident", "faa", "easa", "transport canada"
