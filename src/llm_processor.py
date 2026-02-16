@@ -84,17 +84,16 @@ class LLMProcessor:
 
             # Call LLM with larger token limit for digest
             response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "user",
-            "content": "Reply with the word OK if you can read this."
+    model=self.model,
+    messages=[
+        {
+            "role": "user",
+            "content": prompt
         }
     ],
     temperature=0,
-    max_tokens=5
+    max_tokens=4096
 )
-
             # Track token usage
             if hasattr(response, 'usage'):
                 tokens = response.usage.total_tokens
