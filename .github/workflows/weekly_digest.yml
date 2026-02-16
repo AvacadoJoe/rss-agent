@@ -1,7 +1,7 @@
 name: BD-700 Daily Digest
 
 on:
-  # Run Monday through Friday at 13:00 UTC (8:00 AM EST)
+  # Run Monday through Friday at 13:00 UTC (8:00 AM EST / 9:00 AM EDT)
   schedule:
     - cron: '0 13 * * 1-5'
 
@@ -28,18 +28,19 @@ jobs:
       - name: Set up Python
         run: uv python install 3.10
 
-      # Install the new specific dependencies for Gemini and RSS
+      # FIX: Create a virtual environment first, then install packages
       - name: Install dependencies
         run: |
-          uv pip install google-generativeai feedparser
+          uv venv
+          uv pip install google-generativeai feedparser python-dotenv
 
       - name: Debug env presence
-        run: |
-          echo "GEMINI_API_KEY present: ${GEMINI_API_KEY:+yes}"
-          echo "SMTP_PASSWORD present: ${EMAIL_PASSWORD:+yes}"
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EMAIL_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+        run: |
+          echo "GEMINI_API_KEY present: ${GEMINI_API_KEY:+yes}"
+          echo "SMTP_PASSWORD present: ${EMAIL_PASSWORD:+yes}"
 
       - name: Run digest workflow
         env:
@@ -47,12 +48,11 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           
           # Mapping your existing email secrets to standard names
-          # Adjust these variable names if your python script expects different ones
           EMAIL_SENDER: ${{ secrets.FROM_EMAIL }}
           EMAIL_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           EMAIL_RECIPIENT: ${{ secrets.RECIPIENT_EMAIL }}
         run: |
-          # Running the script located in src/
+          # uv run will automatically detect the .venv created above
           uv run python src/main.py
 
       # Save the history file back to the repo so we don't send duplicates
@@ -66,6 +66,5 @@ jobs:
           
           # Commit changes. The '|| exit 0' prevents failure if there are no new emails.
           git commit -m "Update sent_history.json [skip ci]" || exit 0
-          
           # Push changes back to the repository
           git push
