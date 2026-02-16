@@ -1,23 +1,20 @@
 """
 Main Orchestration Script
-Simplified workflow: Fetch RSS articles → Generate AI digest → Send email
-No database dependencies - completely stateless.
+Workflow: Fetch RSS articles (filtered) -> Generate Gemini digest -> Send email -> Update History
 """
 
 import os
 import sys
 import logging
 import argparse
-from datetime import datetime, timedelta
-from typing import Optional
-
+from datetime import datetime
 from dotenv import load_dotenv
 
-from rss_fetcher import RSSFetcher
-from llm_processor import LLMProcessor
-from email_sender import EmailSender
-from config.feeds import RSS_FEEDS, DIGEST_GENERATION_PROMPT
-
+# Import our new modules
+# Ensure rss_fetcher.py, llm_processor.py, and email_sender.py are in the same directory
+from rss_fetcher import fetch_and_filter_articles, save_history
+from llm_processor import generate_digest
+from email_sender import send_email 
 
 # Configure logging
 def setup_logging(verbose: bool = False):
@@ -32,231 +29,102 @@ def setup_logging(verbose: bool = False):
         ]
     )
 
-
 logger = logging.getLogger(__name__)
 
-
-class DigestOrchestrator:
-    """Main orchestrator for the digest system."""
-
-    def __init__(
-        self,
-        openai_api_key: str,
-        smtp_password: str,
-        from_email: str,
-        recipient_email: str,
-        openai_base_url: Optional[str] = None
-    ):
-        """
-        Initialize the orchestrator with all necessary credentials.
-
-        Args:
-            openai_api_key: OpenAI-compatible API key
-            smtp_password: Google App Password for SMTP authentication
-            from_email: Sender email address (Gmail address)
-            recipient_email: Email address to send digest to
-            openai_base_url: Base URL for OpenAI-compatible API (optional)
-        """
-        self.rss_fetcher = RSSFetcher(RSS_FEEDS)
-        self.llm_processor = LLMProcessor(openai_api_key, base_url=openai_base_url)
-        self.email_sender = EmailSender(smtp_password, from_email)
-        self.recipient_email = recipient_email
-
-        logger.info("Digest orchestrator initialized")
-
-    def generate_and_send_digest(
-        self,
-        days: int = 7,
-        dry_run: bool = False,
-        save_html: bool = True,
-        limit: Optional[int] = None
-    ) -> bool:
-        """
-        Complete workflow: Fetch articles, generate digest, and send email.
-
-        Args:
-            days: Number of days to look back for articles
-            dry_run: If True, generate but don't send email
-            save_html: If True, save digest as HTML file
-            limit: Limit number of articles (for testing)
-
-        Returns:
-            True if successful, False otherwise
-        """
-        logger.info("=" * 60)
-        logger.info("STARTING RSS DIGEST WORKFLOW")
-        logger.info("=" * 60)
-
-        try:
-            # Step 1: Fetch articles from RSS feeds
-            logger.info(f"\n[STEP 1] Fetching articles from past {days} days")
-            articles = self.rss_fetcher.fetch_recent_articles(days)
-
-            if not articles:
-                logger.warning("No articles fetched from RSS feeds")
-                return False
-
-            logger.info(f"✓ Fetched {len(articles)} articles")
-
-            # Limit articles if specified (for testing)
-            if limit:
-                articles = articles[:limit]
-                logger.info(f"Limited to {limit} articles for testing")
-
-            # Step 2: Generate digest with LLM
-            logger.info(f"\n[STEP 2] Generating digest from {len(articles)} articles")
-
-            # Calculate date range
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=days)
-            date_range = f"{start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
-
-            # Generate digest HTML in a single LLM call
-            digest_html = self.llm_processor.generate_digest_from_articles(
-                articles,
-                DIGEST_GENERATION_PROMPT,
-                date_range
-            )
-
-            if not digest_html:
-                logger.error("Failed to generate digest")
-                return False
-
-            logger.info("✓ Digest generated successfully")
-
-            # Log token usage
-            usage = self.llm_processor.get_token_usage_summary()
-            logger.info(f"Token usage: {usage['total_tokens']} tokens")
-
-            # Step 3: Save HTML if requested
-            if save_html:
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                filepath = f"digest_{timestamp}.html"
-                self.email_sender.save_digest_html(digest_html, date_range, filepath)
-                logger.info(f"✓ Digest saved to {filepath}")
-
-            # Step 3: Send email (unless dry run)
-            if not dry_run:
-                logger.info("\n[STEP 3] Sending digest email")
-                success = self.email_sender.send_digest(
-                    recipient_email=self.recipient_email,
-                    digest_html=digest_html,
-                    date_range=date_range,
-                    article_count=len(articles),
-                    template_path="templates/email_template.html"
-                )
-
-                if success:
-                    logger.info("✓ Digest sent successfully")
-                    logger.info("\n" + "=" * 60)
-                    logger.info("WORKFLOW COMPLETE")
-                    logger.info("=" * 60)
-                    logger.info(f"\nSummary:")
-                    logger.info(f"  Articles processed: {len(articles)}")
-                    logger.info(f"  Date range: {date_range}")
-                    logger.info(f"  Total tokens: {usage['total_tokens']}")
-                    return True
-                else:
-                    logger.error("Failed to send digest email")
-                    return False
-            else:
-                logger.info("\nDry run mode - email not sent")
-                logger.info("✓ Digest saved to HTML file")
-                logger.info("\n" + "=" * 60)
-                logger.info("WORKFLOW COMPLETE (DRY RUN)")
-                logger.info("=" * 60)
-                logger.info(f"\nSummary:")
-                logger.info(f"  Articles processed: {len(articles)}")
-                logger.info(f"  Date range: {date_range}")
-                logger.info(f"  Total tokens: {usage['total_tokens']}")
-                return True
-
-        except Exception as e:
-            logger.error(f"Error in workflow: {str(e)}", exc_info=True)
-            return False
-
-
 def main():
-    """Main entry point with CLI argument parsing."""
+    """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="RSS Weekly Digest - Automated RSS monitoring and digest generation"
+        description="BD-700 Technical Digest - Automated Airworthiness Monitoring"
     )
 
-    parser.add_argument(
-        '--test',
-        action='store_true',
-        help='Test mode: process only 5 articles'
-    )
-
-    parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Dry run mode: generate digest but do not send email'
-    )
-
-    parser.add_argument(
-        '--days',
-        type=int,
-        default=7,
-        help='Number of days to look back for articles (default: 7)'
-    )
-
-    parser.add_argument(
-        '--verbose',
-        action='store_true',
-        help='Enable verbose logging'
-    )
-
-    parser.add_argument(
-        '--no-save',
-        action='store_true',
-        help='Do not save digest as HTML file'
-    )
+    parser.add_argument('--dry-run', action='store_true', help='Generate digest but do not send email')
+    parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
+    parser.add_argument('--force', action='store_true', help='Ignore weekend check and run anyway')
 
     args = parser.parse_args()
 
     # Setup logging
     setup_logging(args.verbose)
-
-    # Load environment variables
     load_dotenv()
 
-    # Check required environment variables
-    required_vars = [
-        'OPENAI_API_KEY',
-        'LLM_MODEL',
-        'SMTP_PASSWORD',
-        'FROM_EMAIL',
-        'RECIPIENT_EMAIL'
-    ]
+    # --- 1. WEEKDAY CHECK ---
+    # 0=Monday, 4=Friday, 5=Saturday, 6=Sunday
+    if not args.force:
+        today = datetime.today().weekday()
+        if today >= 5:
+            logger.info("Today is a weekend (Saturday/Sunday). Skipping execution.")
+            sys.exit(0)
 
-    missing_vars = [var for var in required_vars if not os.getenv(var)]
-
-    if missing_vars:
-        logger.error(f"Missing required environment variables: {', '.join(missing_vars)}")
-        logger.error("Please check your .env file")
+    # --- 2. CHECK ENV VARS ---
+    required_vars = ['GEMINI_API_KEY', 'EMAIL_PASSWORD', 'EMAIL_SENDER', 'EMAIL_RECIPIENT']
+    missing = [var for var in required_vars if not os.getenv(var)]
+    if missing:
+        logger.error(f"Missing environment variables: {', '.join(missing)}")
         sys.exit(1)
 
-    # Initialize orchestrator
-    orchestrator = DigestOrchestrator(
-        openai_api_key=os.getenv('OPENAI_API_KEY'),
-        smtp_password=os.getenv('SMTP_PASSWORD'),
-        from_email=os.getenv('FROM_EMAIL'),
-        recipient_email=os.getenv('RECIPIENT_EMAIL'),
-        openai_base_url=os.getenv('OPENAI_BASE_URL', '').strip()
-    )
+    logger.info("=" * 60)
+    logger.info("STARTING BD-700 TECHNICAL DIGEST")
+    logger.info("=" * 60)
 
-    # Run workflow
-    limit = 5 if args.test else None
-    success = orchestrator.generate_and_send_digest(
-        days=args.days,
-        dry_run=args.dry_run,
-        save_html=not args.no_save,
-        limit=limit
-    )
+    try:
+        # --- 3. FETCH & FILTER ---
+        # Returns: relevant articles, new IDs found, and the old history list
+        logger.info("[STEP 1] Fetching and filtering articles...")
+        articles, new_ids, old_history = fetch_and_filter_articles()
 
-    sys.exit(0 if success else 1)
+        if not articles:
+            logger.info("No new technical articles found since last run.")
+            logger.info("WORKFLOW COMPLETE (No Data)")
+            sys.exit(0)
 
+        logger.info(f"✓ Found {len(articles)} new relevant articles")
+
+        # --- 4. GENERATE DIGEST ---
+        logger.info(f"[STEP 2] Generating digest with Gemini...")
+        digest_content = generate_digest(articles)
+
+        if not digest_content or "Error" in digest_content:
+            logger.error("Failed to generate digest content.")
+            sys.exit(1)
+
+        logger.info("✓ Digest generated successfully")
+
+        # --- 5. SEND EMAIL ---
+        if not args.dry_run:
+            logger.info("[STEP 3] Sending email...")
+            
+            subject = f"BD-700 Airworthiness & Safety Update - {datetime.now().strftime('%Y-%m-%d')}"
+            
+            # We assume send_email takes (subject, body) or similar. 
+            # Adjust arguments if your email_sender.py signature is different.
+            success = send_email(
+                subject=subject, 
+                body=digest_content
+            )
+            
+            # Note: If your send_email function doesn't return a boolean, 
+            # wrap this in a try/except block instead.
+            
+            logger.info("✓ Email sent successfully")
+
+            # --- 6. SAVE HISTORY ---
+            # Only mark as sent if email actually went out
+            updated_history = old_history + new_ids
+            save_history(updated_history)
+            logger.info(f"✓ Marked {len(new_ids)} articles as sent in history file")
+
+        else:
+            logger.info("[DRY RUN] Skipping email sending.")
+            logger.info(f"Would have sent email to {os.getenv('EMAIL_RECIPIENT')}")
+            logger.info(f"Digest Content Preview:\n{digest_content[:500]}...")
+
+        logger.info("=" * 60)
+        logger.info("WORKFLOW COMPLETE")
+        logger.info("=" * 60)
+
+    except Exception as e:
+        logger.error(f"Critical error in workflow: {e}", exc_info=True)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
