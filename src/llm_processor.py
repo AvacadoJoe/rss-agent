@@ -91,7 +91,7 @@ class LLMProcessor:
                         },
                     ],
                     temperature=0.0,
-                    max_tokens=2500,
+                    max_tokens=1500,
                 )
 
                 if hasattr(response, "usage") and response.usage:
