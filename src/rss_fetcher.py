@@ -25,9 +25,9 @@ BD700_KEYWORDS = [
     "global express", 
     "global 5000", 
     "global 6000",
-    "xrs", "E-11", "E-11A",
+    "xrs", "E-11", "E-11A", "Battlefield Airborne Communications Node".
     "airworthiness", "directive", "ad",
-    "service bulletin", "sb",
+    "service bulletin", "sb", "BACN",
     "maintenance", "safety", "incident", "faa", "easa", "transport canada"
 ]
 
