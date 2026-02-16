@@ -1,25 +1,20 @@
-name: Weekly RSS Digest
+name: BD-700 Daily Digest
 
 on:
+  # Run Monday through Friday at 13:00 UTC (8:00 AM EST)
   schedule:
-    - cron: '0 5 * * 1'
+    - cron: '0 13 * * 1-5'
 
+  # Keep manual trigger for testing
   workflow_dispatch:
-    inputs:
-      test_mode:
-        description: 'Run in test mode (only 5 articles)'
-        required: false
-        type: boolean
-        default: false
-      dry_run:
-        description: 'Dry run (generate but do not send email)'
-        required: false
-        type: boolean
-        default: false
 
 jobs:
   generate-digest:
     runs-on: ubuntu-latest
+
+    # Grant permission to write to the repo (Required for saving sent_history.json)
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
@@ -31,56 +26,46 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install
+        run: uv python install 3.10
 
+      # Install the new specific dependencies for Gemini and RSS
       - name: Install dependencies
-        run: uv sync
+        run: |
+          uv pip install google-generativeai feedparser
 
       - name: Debug env presence
         run: |
-          echo "OPENAI_API_KEY present: ${OPENAI_API_KEY:+yes}"
-          echo "OPENAI_BASE_URL present: ${OPENAI_BASE_URL:+yes}"
-          echo "LLM_MODEL present: ${LLM_MODEL:+yes}"
-          echo "SMTP_PASSWORD present: ${SMTP_PASSWORD:+yes}"
-          echo "FROM_EMAIL present: ${FROM_EMAIL:+yes}"
-          echo "RECIPIENT_EMAIL present: ${RECIPIENT_EMAIL:+yes}"
+          echo "GEMINI_API_KEY present: ${GEMINI_API_KEY:+yes}"
+          echo "SMTP_PASSWORD present: ${EMAIL_PASSWORD:+yes}"
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
-          LLM_MODEL: ${{ secrets.LLM_MODEL }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
-          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          EMAIL_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
 
       - name: Run digest workflow
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
-          LLM_MODEL: ${{ secrets.LLM_MODEL }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
-          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          # Map your Repository Secrets to the Env Vars the Python script needs
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          
+          # Mapping your existing email secrets to standard names
+          # Adjust these variable names if your python script expects different ones
+          EMAIL_SENDER: ${{ secrets.FROM_EMAIL }}
+          EMAIL_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.RECIPIENT_EMAIL }}
         run: |
-          if [ "${{ github.event.inputs.test_mode }}" == "true" ]; then
-            uv run python src/main.py --test
-          elif [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
-            uv run python src/main.py --dry-run
-          else
-            uv run python src/main.py
-          fi
+          # Running the script located in src/
+          uv run python src/main.py
 
-      - name: Upload digest HTML artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: digest-html-${{ github.run_number }}
-          path: |
-            digest_*.html
-            digest.log
-          retention-days: 30
-
-      - name: Report status
-        if: failure()
+      # Save the history file back to the repo so we don't send duplicates
+      - name: Commit and Push History
         run: |
-          echo "::error::Digest workflow failed. Check logs for details."
-          cat digest.log || echo "Log file not found"
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          
+          # Add the history file if it exists
+          git add sent_history.json
+          
+          # Commit changes. The '|| exit 0' prevents failure if there are no new emails.
+          git commit -m "Update sent_history.json [skip ci]" || exit 0
+          
+          # Push changes back to the repository
+          git push
