@@ -1,165 +1,146 @@
 """
 RSS Feed Fetcher
-Retrieves articles from RSS feeds and parses them.
+Retrieves technical aviation articles, filters for BD-700 relevance,
+and handles deduplication using a local history file.
 """
 
-import logging
-from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Optional
 import feedparser
-from dateutil import parser as date_parser
+import logging
+import json
+import os
+import time
+from datetime import datetime
+from typing import List, Tuple, Dict, Any
 
 logger = logging.getLogger(__name__)
 
+# --- CONFIGURATION ---
+HISTORY_FILE = "sent_history.json"
+# Strict cutoff: Only articles published on or after Feb 15, 2026
+CUTOFF_DATE = datetime(2026, 2, 15)
 
-class RSSFetcher:
-    """Fetches and parses RSS feeds."""
+# STRICT Technical Keywords (Legacy BD-700 only)
+BD700_KEYWORDS = [
+    "bd-700", "bd700",
+    "global express", 
+    "global 5000", 
+    "global 6000",
+    "xrs",
+    "airworthiness", "directive", "ad",
+    "service bulletin", "sb",
+    "maintenance", "safety", "incident", "faa", "easa", "transport canada"
+]
 
-    def __init__(self, feeds: Dict[str, str]):
-        """
-        Initialize RSS fetcher with feed configuration.
+# Technical & Regulatory Feeds
+RSS_FEEDS = [
+    # Transport Canada - Civil Aviation Recent ADs (Primary Source)
+    "https://wwwapps.tc.gc.ca/Saf-Sec-Sur/2/awd-cn/rss-feed-ech.aspx?lang=eng",
+    # FAA Airworthiness Directives (filtered via Federal Register)
+    "https://www.federalregister.gov/api/v1/documents.rss?conditions%5Bterm%5D=Bombardier+BD-700+Airworthiness",
+    # EASA Airworthiness Directives
+    "https://www.easa.europa.eu/en/rss/ad",
+    # Aviation Herald (Incidents/Accidents)
+    "https://avherald.com/h?opt=0&f=0"
+]
 
-        Args:
-            feeds: Dictionary mapping feed names to URLs
-        """
-        self.feeds = feeds
+def load_history() -> List[str]:
+    """Loads the list of previously sent article IDs."""
+    if not os.path.exists(HISTORY_FILE):
+        return []
+    try:
+        with open(HISTORY_FILE, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to load history: {e}")
+        return []
 
-    def fetch_recent_articles(self, days: int = 7) -> List[Dict]:
-        """
-        Fetch articles from all configured feeds from the past N days.
+def save_history(sent_ids: List[str]) -> None:
+    """Saves the updated list of sent article IDs."""
+    try:
+        # Keep file size manageable (last 1000 IDs)
+        trimmed_ids = sent_ids[-1000:] 
+        with open(HISTORY_FILE, 'w') as f:
+            json.dump(trimmed_ids, f)
+    except Exception as e:
+        logger.error(f"Failed to save history: {e}")
 
-        Args:
-            days: Number of days to look back (default 7)
+def fetch_and_filter_articles() -> Tuple[List[Dict[str, Any]], List[str], List[str]]:
+    """
+    Fetches articles, filters by date (>= Feb 15, 2026), 
+    checks for duplicates, and filters by keywords.
 
-        Returns:
-            List of article dictionaries with parsed metadata
-        """
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
-        all_articles = []
+    Returns:
+        Tuple containing:
+        1. List of relevant article dictionaries
+        2. List of new IDs found in this run
+        3. List of old history IDs (for appending later)
+    """
+    articles = []
+    sent_ids = load_history()
+    new_ids_found = []
+    
+    logger.info(f"Fetching articles... (Cutoff: {CUTOFF_DATE.strftime('%Y-%m-%d')})")
 
-        for feed_name, feed_url in self.feeds.items():
-            logger.info(f"Fetching feed: {feed_name}")
-            try:
-                articles = self._fetch_single_feed(feed_url, feed_name, cutoff_date)
-                all_articles.extend(articles)
-                logger.info(f"Retrieved {len(articles)} articles from {feed_name}")
-            except Exception as e:
-                logger.error(f"Failed to fetch {feed_name}: {str(e)}")
-                # Continue with other feeds even if one fails
-                continue
+    for feed_url in RSS_FEEDS:
+        try:
+            feed = feedparser.parse(feed_url)
+            
+            for entry in feed.entries:
+                # 1. IDENTIFY UNIQUE ID
+                # Use GUID if available, otherwise Link, otherwise Title
+                unique_id = entry.get('id', entry.get('link', entry.get('title')))
+                
+                # 2. DUPLICATE CHECK
+                if unique_id in sent_ids:
+                    continue 
 
-        logger.info(f"Total articles retrieved: {len(all_articles)}")
-        return all_articles
-
-    def _fetch_single_feed(
-        self,
-        feed_url: str,
-        feed_name: str,
-        cutoff_date: datetime
-    ) -> List[Dict]:
-        """
-        Fetch and parse a single RSS feed.
-
-        Args:
-            feed_url: URL of the RSS feed
-            feed_name: Name/category of the feed
-            cutoff_date: Only return articles after this date
-
-        Returns:
-            List of parsed article dictionaries
-        """
-        feed = feedparser.parse(feed_url)
-        articles = []
-
-        for entry in feed.entries:
-            try:
-                # Parse publication date
-                pub_date = self._parse_date(entry)
-
-                # Skip if too old
-                if pub_date and pub_date < cutoff_date:
+                # 3. DATE CHECK
+                # feedparser returns time.struct_time, convert to datetime
+                if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                    published_dt = datetime.fromtimestamp(time.mktime(entry.published_parsed))
+                    if published_dt < CUTOFF_DATE:
+                        continue # Skip old articles
+                
+                # 4. KEYWORD & CONTENT FILTERING
+                title = entry.get('title', '')
+                summary = entry.get('summary', '')
+                link = entry.get('link', '#')
+                content_text = (title + " " + summary).lower()
+                
+                # Exclusion (No 7500/8000/Sales/Financials)
+                if any(x in content_text for x in ["7500", "8000", "order", "delivery", "stock", "quarterly"]):
                     continue
 
-                article = {
-                    'url': entry.get('link', ''),
-                    'title': entry.get('title', ''),
-                    'rss_summary': entry.get('summary', ''),
-                    'feed_category': feed_name,
-                    'published_date': pub_date,
-                }
+                # Inclusion (Must match BD-700 keywords)
+                if any(keyword in content_text for keyword in BD700_KEYWORDS):
+                    
+                    # Flag if this is from the State of Design (Canada)
+                    is_primary = "tc.gc.ca" in feed_url or "CF-" in title
+                    
+                    articles.append({
+                        'title': title,
+                        'link': link,
+                        'summary': summary,
+                        'published': entry.get('published', str(datetime.now())),
+                        'is_primary': is_primary,
+                        'id': unique_id
+                    })
+                    
+                    new_ids_found.append(unique_id)
 
-                # Only add if we have essential fields
-                if article['url'] and article['title']:
-                    articles.append(article)
+        except Exception as e:
+            logger.error(f"Error fetching {feed_url}: {e}")
 
-            except Exception as e:
-                logger.warning(f"Failed to parse entry: {str(e)}")
-                continue
-
-        return articles
-
-    def _parse_date(self, entry) -> Optional[datetime]:
-        """
-        Parse publication date from feed entry.
-        Tries multiple common date fields.
-
-        Args:
-            entry: Feed entry object
-
-        Returns:
-            Parsed datetime or None if parsing fails
-        """
-        date_fields = ['published', 'updated', 'created']
-
-        for field in date_fields:
-            date_str = entry.get(field)
-            if date_str:
-                try:
-                    return date_parser.parse(date_str)
-                except Exception:
-                    continue
-
-        # Try parsed date fields
-        if hasattr(entry, 'published_parsed') and entry.published_parsed:
-            try:
-                return datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
-            except Exception:
-                pass
-
-        logger.warning(f"Could not parse date for entry: {entry.get('title', 'Unknown')}")
-        return None
-
-
-def test_feeds(feeds: Dict[str, str], days: int = 7) -> None:
-    """
-    Test function to verify RSS feeds are working.
-
-    Args:
-        feeds: Dictionary of feed names to URLs
-        days: Number of days to look back
-    """
-    fetcher = RSSFetcher(feeds)
-    articles = fetcher.fetch_recent_articles(days)
-
-    print(f"\n=== RSS Feed Test Results ===")
-    print(f"Total articles retrieved: {len(articles)}")
-    print(f"\nSample articles:")
-
-    for i, article in enumerate(articles[:5], 1):
-        print(f"\n{i}. {article['title']}")
-        print(f"   Feed: {article['feed_category']}")
-        print(f"   Date: {article['published_date']}")
-        print(f"   URL: {article['url']}")
-        print(f"   Summary: {article['rss_summary'][:100]}...")
-
+    logger.info(f"Found {len(articles)} new relevant articles.")
+    
+    # Return the articles, the new IDs to save later, and the old history
+    return articles, new_ids_found, sent_ids
 
 if __name__ == "__main__":
-    # Test the RSS fetcher
-    from config.feeds import RSS_FEEDS
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-
-    test_feeds(RSS_FEEDS)
+    # Simple test to verify fetching works
+    logging.basicConfig(level=logging.INFO)
+    print("Testing RSS Fetcher...")
+    arts, new_ids, _ = fetch_and_filter_articles()
+    print(f"Retrieved {len(arts)} articles.")
+    for a in arts:
+        print(f"- {a['title']} ({'PRIMARY' if a['is_primary'] else 'Secondary'})")
