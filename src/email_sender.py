@@ -1,300 +1,44 @@
-"""
-Email Sender Module
-Handles email composition and sending via Google Workspace SMTP.
-"""
-
-import logging
 import smtplib
-from datetime import datetime
-from typing import Optional
-from email.mime.multipart import MIMEMultipart
+import os
+import logging
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 logger = logging.getLogger(__name__)
 
-
-class EmailSender:
-    """Sends digest emails via Google Workspace SMTP."""
-
-    def __init__(self, smtp_password: str, from_email: str):
-        """
-        Initialize email sender.
-
-        Args:
-            smtp_password: Google App Password for SMTP authentication
-            from_email: Sender email address (Gmail address)
-        """
-        self.smtp_password = smtp_password
-        self.from_email = from_email
-        logger.info(f"Email sender initialized with from_email: {from_email}")
-
-    def send_digest(
-        self,
-        recipient_email: str,
-        digest_html: str,
-        date_range: str,
-        article_count: int,
-        template_path: Optional[str] = None
-    ) -> bool:
-        """
-        Send weekly digest email.
-
-        Args:
-            recipient_email: Recipient email address
-            digest_html: HTML content of the digest
-            date_range: Date range string for subject line
-            article_count: Number of articles in digest
-            template_path: Optional path to HTML template file
-
-        Returns:
-            True if sent successfully, False otherwise
-        """
-        try:
-            # Load template if provided
-            if template_path:
-                try:
-                    with open(template_path, 'r', encoding='utf-8') as f:
-                        template = f.read()
-                    # Replace placeholder with digest content
-                    full_html = template.replace('{{DIGEST_CONTENT}}', digest_html)
-                    full_html = full_html.replace('{{DATE_RANGE}}', date_range)
-                except Exception as e:
-                    logger.warning(f"Failed to load template: {str(e)}. Using plain HTML.")
-                    full_html = self._create_simple_template(digest_html, date_range)
-            else:
-                full_html = self._create_simple_template(digest_html, date_range)
-
-            # Create email
-            subject = f"Your Weekly RSS Digest: {date_range} ({article_count} articles)"
-
-            msg = MIMEMultipart('alternative')
-            msg['Subject'] = subject
-            msg['From'] = f"RSS Digest <{self.from_email}>"
-            msg['To'] = recipient_email
-
-            # Attach HTML content
-            html_part = MIMEText(full_html, 'html')
-            msg.attach(html_part)
-
-            # Send email via SMTP
-            logger.info(f"Sending digest to {recipient_email} via SMTP")
-            server = smtplib.SMTP('smtp.gmail.com', 587)
-            server.starttls()
-            server.login(self.from_email, self.smtp_password)
-            server.send_message(msg)
-            server.quit()
-
-            logger.info("Email sent successfully via SMTP")
-            return True
-
-        except smtplib.SMTPAuthenticationError as e:
-            logger.error(f"SMTP authentication failed: {str(e)}")
-            logger.error("Please verify your Gmail address and App Password")
-            return False
-        except smtplib.SMTPException as e:
-            logger.error(f"SMTP error: {str(e)}")
-            return False
-        except Exception as e:
-            logger.error(f"Error sending email: {str(e)}")
-            return False
-
-    def send_test_email(self, recipient_email: str) -> bool:
-        """
-        Send a test email to verify configuration.
-
-        Args:
-            recipient_email: Recipient email address
-
-        Returns:
-            True if sent successfully, False otherwise
-        """
-        try:
-            test_content = """
-            <h1>Test Email from RSS Digest</h1>
-            <p>This is a test email to verify your Gmail SMTP configuration.</p>
-            <p>If you received this, your email setup is working correctly!</p>
-            <p><small>Sent at: {}</small></p>
-            """.format(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
-            msg = MIMEMultipart('alternative')
-            msg['Subject'] = "Test Email - RSS Digest"
-            msg['From'] = f"RSS Digest <{self.from_email}>"
-            msg['To'] = recipient_email
-
-            html_part = MIMEText(test_content, 'html')
-            msg.attach(html_part)
-
-            # Send via SMTP
-            server = smtplib.SMTP('smtp.gmail.com', 587)
-            server.starttls()
-            server.login(self.from_email, self.smtp_password)
-            server.send_message(msg)
-            server.quit()
-
-            logger.info("Test email sent successfully via SMTP")
-            return True
-
-        except smtplib.SMTPAuthenticationError as e:
-            logger.error(f"SMTP authentication failed: {str(e)}")
-            logger.error("Please verify your Gmail address and App Password")
-            return False
-        except smtplib.SMTPException as e:
-            logger.error(f"SMTP error: {str(e)}")
-            return False
-        except Exception as e:
-            logger.error(f"Error sending test email: {str(e)}")
-            return False
-
-    def _create_simple_template(self, digest_html: str, date_range: str) -> str:
-        """
-        Create a simple HTML email template.
-
-        Args:
-            digest_html: The digest content
-            date_range: Date range string
-
-        Returns:
-            Complete HTML email
-        """
-        return f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RSS Weekly Digest</title>
-    <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }}
-        .container {{
-            background-color: white;
-            padding: 40px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }}
-        h1 {{
-            color: #e3120b;
-            border-bottom: 3px solid #e3120b;
-            padding-bottom: 10px;
-        }}
-        h2 {{
-            color: #2c3e50;
-            margin-top: 30px;
-        }}
-        h3 {{
-            color: #34495e;
-            margin-top: 20px;
-        }}
-        a {{
-            color: #e3120b;
-            text-decoration: none;
-        }}
-        a:hover {{
-            text-decoration: underline;
-        }}
-        .footer {{
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 1px solid #ddd;
-            font-size: 0.9em;
-            color: #666;
-        }}
-        ul {{
-            padding-left: 20px;
-        }}
-        li {{
-            margin-bottom: 10px;
-        }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🗞️ Your Weekly RSS Digest</h1>
-        <p><strong>Week of {date_range}</strong></p>
-
-        {digest_html}
-
-        <div class="footer">
-            <p>This digest was automatically generated from RSS feeds.</p>
-            <p><small>Generated with ❤️ by your automated digest system</small></p>
-        </div>
-    </div>
-</body>
-</html>
-"""
-
-    def save_digest_html(self, digest_html: str, date_range: str, filepath: str) -> bool:
-        """
-        Save digest as HTML file for backup/review.
-
-        Args:
-            digest_html: The digest content
-            date_range: Date range string
-            filepath: Path to save the file
-
-        Returns:
-            True if saved successfully, False otherwise
-        """
-        try:
-            full_html = self._create_simple_template(digest_html, date_range)
-
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(full_html)
-
-            logger.info(f"Digest saved to {filepath}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Error saving digest HTML: {str(e)}")
-            return False
-
-
-def test_email_sender(smtp_password: str, from_email: str, recipient: str) -> None:
+def send_email(subject, body):
     """
-    Test email sender functionality.
-
-    Args:
-        smtp_password: Google App Password
-        from_email: Sender email address (Gmail)
-        recipient: Test recipient email address
+    Sends an email using the credentials from environment variables.
     """
-    sender = EmailSender(smtp_password, from_email)
+    # Retrieve credentials
+    sender_email = os.getenv("EMAIL_SENDER")
+    password = os.getenv("EMAIL_PASSWORD")
+    recipient_email = os.getenv("EMAIL_RECIPIENT")
 
-    print("\n=== Email Sender Test ===")
-    print(f"Sending test email to: {recipient}")
+    # Validate credentials
+    if not all([sender_email, password, recipient_email]):
+        logger.error("Missing email environment variables (EMAIL_SENDER, EMAIL_PASSWORD, or EMAIL_RECIPIENT).")
+        return False
 
-    success = sender.send_test_email(recipient)
+    # Create the email
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = recipient_email
+    msg['Subject'] = subject
 
-    if success:
-        print("✅ Test email sent successfully!")
-        print("Check your inbox to confirm receipt.")
-    else:
-        print("❌ Failed to send test email. Check logs for details.")
+    # Attach body (Plain text is usually fine for digests, change to 'html' if needed)
+    msg.attach(MIMEText(body, 'plain'))
 
-
-if __name__ == "__main__":
-    import os
-    from dotenv import load_dotenv
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-
-    load_dotenv()
-
-    smtp_password = os.getenv("SMTP_PASSWORD")
-    from_email = os.getenv("FROM_EMAIL")
-    recipient = os.getenv("RECIPIENT_EMAIL")
-
-    if smtp_password and from_email and recipient:
-        test_email_sender(smtp_password, from_email, recipient)
-    else:
-        print("Please set SMTP_PASSWORD, FROM_EMAIL, and RECIPIENT_EMAIL in .env file")
+    try:
+        # Connect to Gmail SMTP (Standard port 465 for SSL)
+        # If using Outlook/Office365, change to ('smtp.office365.com', 587) and use starttls()
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+            server.login(sender_email, password)
+            server.send_message(msg)
+        
+        logger.info(f"Email sent successfully to {recipient_email}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to send email: {e}")
+        return False
