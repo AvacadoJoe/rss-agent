@@ -29,11 +29,12 @@ jobs:
         run: uv python install 3.10
 
       # FIX: Create a virtual environment first, then install packages
+      # NOTE: Installing 'google-genai' (New SDK) instead of 'google-generativeai'
       - name: Install dependencies
         run: |
           uv venv
           uv pip install google-genai feedparser python-dotenv
-          
+
       - name: Debug env presence
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -61,10 +62,12 @@ jobs:
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
           
-          # Add the history file if it exists
-          git add sent_history.json
-          
-          # Commit changes. The '|| exit 0' prevents failure if there are no new emails.
-          git commit -m "Update sent_history.json [skip ci]" || exit 0
-          # Push changes back to the repository
-          git push
+          # Check if the file exists before trying to add it (prevents crash on first run)
+          if [ -f sent_history.json ]; then
+            git add sent_history.json
+            # The '|| exit 0' prevents failure if there are no changes to commit
+            git commit -m "Update sent_history.json [skip ci]" || exit 0
+            git push
+          else
+            echo "No history file found to commit (no emails sent yet)."
+          fi
